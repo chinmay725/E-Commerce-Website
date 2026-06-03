@@ -1,4 +1,4 @@
-const { supabase } = require('../config/supabase');
+const { supabaseAdmin } = require('../config/supabase');
 const slugify = require('slugify');
 
 const makeSlug = (name) =>
@@ -15,7 +15,7 @@ exports.getProducts = async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
-    let query = supabase
+    let query = supabaseAdmin
       .from('products')
       .select(`
         id, name, slug, price, mrp, stock,
@@ -76,7 +76,7 @@ exports.getProduct = async (req, res) => {
   try {
     const { slug } = req.params;
     
-    const { data: product, error } = await supabase
+    const { data: product, error } = await supabaseAdmin
       .from('products')
       .select(`
         *,
@@ -90,14 +90,14 @@ exports.getProduct = async (req, res) => {
     if (error || !product) return res.status(404).json({ success: false, message: 'Product not found.' });
 
     // Get images
-    const { data: images } = await supabase
+    const { data: images } = await supabaseAdmin
       .from('product_images')
       .select('*')
       .eq('product_id', product.id)
       .order('sort_order');
 
     // Get reviews
-    const { data: reviews } = await supabase
+    const { data: reviews } = await supabaseAdmin
       .from('reviews')
       .select(`
         *,
@@ -109,7 +109,7 @@ exports.getProduct = async (req, res) => {
       .limit(10);
 
     // Get similar products
-    const { data: similar } = await supabase
+    const { data: similar } = await supabaseAdmin
       .from('products')
       .select('id, name, slug, price, mrp, thumbnail_url, avg_rating')
       .eq('category_id', product.category_id)
@@ -139,7 +139,7 @@ exports.createProduct = async (req, res) => {
     const slug = makeSlug(name);
     const sku = `SKU-${Date.now().toString(36).toUpperCase()}`;
 
-    const { data: product, error } = await supabase
+    const { data: product, error } = await supabaseAdmin
       .from('products')
       .insert({
         name, slug, description, short_description,
@@ -162,7 +162,7 @@ exports.createProduct = async (req, res) => {
     // Insert images
     if (images?.length) {
       for (let i = 0; i < images.length; i++) {
-        await supabase.from('product_images').insert({
+        await supabaseAdmin.from('product_images').insert({
           product_id: product.id,
           url: images[i].url,
           alt_text: images[i].alt || name,
@@ -171,7 +171,7 @@ exports.createProduct = async (req, res) => {
         });
       }
       // Set thumbnail
-      await supabase
+      await supabaseAdmin
         .from('products')
         .update({ thumbnail_url: images[0].url })
         .eq('id', product.id);
@@ -191,24 +191,22 @@ exports.updateProduct = async (req, res) => {
     const fields = req.body;
 
     const allowed = [
-      'name','description','short_description','category_id','brand_id',
-      'price','mrp','cost_price','stock','weight_grams',
-      'is_featured','is_trending','tags','specifications','is_active',
+      'name', 'description', 'short_description', 'category_id', 'brand_id',
+      'price', 'mrp', 'cost_price', 'stock', 'weight_grams',
+      'is_featured', 'is_trending', 'tags', 'specifications', 'is_active',
     ];
 
-    const sets  = [];
-    const vals  = [];
+    const updates = {};
     for (const key of allowed) {
-      if (fields[key] !== undefined) {
-        sets.push(`${key} = ?`);
-        vals.push(['tags','specifications'].includes(key) ? JSON.stringify(fields[key]) : fields[key]);
-      }
+      if (fields[key] !== undefined) updates[key] = fields[key];
     }
 
-    if (!sets.length) return res.status(400).json({ success: false, message: 'No valid fields to update.' });
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update.' });
+    }
 
-    vals.push(id);
-    await pool.execute(`UPDATE products SET ${sets.join(',')} WHERE id = ?`, vals);
+    const { error } = await supabaseAdmin.from('products').update(updates).eq('id', id);
+    if (error) throw error;
     res.json({ success: true, message: 'Product updated.' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to update product.' });
@@ -219,7 +217,8 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.execute('UPDATE products SET is_active = 0 WHERE id = ?', [id]);
+    const { error } = await supabaseAdmin.from('products').update({ is_active: 0 }).eq('id', id);
+    if (error) throw error;
     res.json({ success: true, message: 'Product deleted (soft).' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete product.' });
@@ -232,11 +231,14 @@ exports.searchSuggestions = async (req, res) => {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json({ success: true, data: [] });
 
-    const [rows] = await pool.execute(
-      `SELECT id, name, slug, thumbnail_url, price FROM products
-       WHERE name LIKE ? AND is_active = 1 LIMIT 8`,
-      [`%${q}%`]
-    );
+    const { data: rows, error } = await supabaseAdmin
+      .from('products')
+      .select('id, name, slug, thumbnail_url, price')
+      .ilike('name', `%${q}%`)
+      .eq('is_active', 1)
+      .limit(8);
+
+    if (error) throw error;
     res.json({ success: true, data: rows });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Search failed.' });

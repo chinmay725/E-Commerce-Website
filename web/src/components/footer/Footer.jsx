@@ -5,7 +5,7 @@ import './Footer.css';
 const LINKS = {
   'Company': [['About Us','/about'],['Careers','/careers'],['Press','/press'],['Blog','/blog']],
   'Help':    [['FAQ','/faq'],['Contact Us','/contact'],['Track Order','/orders'],['Returns','/returns']],
-  'Shop':    [['Mobiles','/category/mobiles'],['Fashion','/category/fashion'],['Electronics','/category/electronics'],['Sports','/category/sports']],
+  'Shop':    [['Books','/category/books'],['Fashion','/category/fashion'],['Electronics','/category/electronics'],['Sports','/category/sports']],
   'Legal':   [['Privacy Policy','/privacy'],['Terms of Use','/terms'],['Sitemap','/sitemap']],
 };
 

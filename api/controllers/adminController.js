@@ -1,55 +1,111 @@
-const pool = require('../config/db');
+const { supabaseAdmin } = require('../config/supabase');
 
 // ── GET /api/admin/dashboard ──────────────────────────────
 exports.getDashboard = async (req, res) => {
   try {
-    const [[revenue]]  = await pool.execute("SELECT COALESCE(SUM(total),0) AS total FROM orders WHERE status != 'cancelled'");
-    const [[orders]]   = await pool.execute("SELECT COUNT(*) AS total FROM orders");
-    const [[products]] = await pool.execute("SELECT COUNT(*) AS total FROM products WHERE is_active=1");
-    const [[users]]    = await pool.execute("SELECT COUNT(*) AS total FROM users WHERE role='user'");
-    const [[pending]]  = await pool.execute("SELECT COUNT(*) AS total FROM orders WHERE status='pending'");
+    // Total revenue (non-cancelled orders)
+    const { data: revenueOrders } = await supabaseAdmin
+      .from('orders')
+      .select('total_amount, status')
+      .neq('status', 'cancelled');
+    const totalRevenue = (revenueOrders || []).reduce((s, o) => s + (o.total_amount || 0), 0);
 
-    const [revenueChart] = await pool.execute(
-      `SELECT DATE_FORMAT(created_at,'%b %Y') AS month,
-              ROUND(SUM(total),2) AS revenue, COUNT(*) AS orders
-       FROM orders WHERE created_at > DATE_SUB(NOW(), INTERVAL 6 MONTH)
-         AND status != 'cancelled'
-       GROUP BY YEAR(created_at), MONTH(created_at)
-       ORDER BY MIN(created_at)`
-    );
+    // Counts
+    const { count: ordersCount }   = await supabaseAdmin.from('orders').select('*', { count: 'exact', head: true });
+    const { count: productsCount } = await supabaseAdmin.from('products').select('*', { count: 'exact', head: true }).eq('is_active', 1);
+    const { count: usersCount }    = await supabaseAdmin.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'user');
+    const { count: pendingCount }  = await supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'pending');
 
-    const [topProducts] = await pool.execute(
-      `SELECT p.name, p.thumbnail_url, SUM(oi.quantity) AS sold, SUM(oi.subtotal) AS revenue
-       FROM order_items oi JOIN products p ON oi.product_id = p.id
-       GROUP BY p.id ORDER BY sold DESC LIMIT 5`
-    );
+    // Revenue chart: last 6 months grouped by month (JS aggregation)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const { data: chartOrders } = await supabaseAdmin
+      .from('orders')
+      .select('total_amount, created_at')
+      .neq('status', 'cancelled')
+      .gte('created_at', sixMonthsAgo.toISOString());
 
-    const [recentOrders] = await pool.execute(
-      `SELECT o.id, o.order_number, o.status, o.total, o.created_at,
-              u.name AS user_name, u.phone
-       FROM orders o JOIN users u ON o.user_id = u.id
-       ORDER BY o.created_at DESC LIMIT 10`
-    );
+    const monthMap = {};
+    for (const o of chartOrders || []) {
+      const d   = new Date(o.created_at);
+      const key = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      if (!monthMap[key]) monthMap[key] = { month: key, revenue: 0, orders: 0, _ts: d.getTime() };
+      monthMap[key].revenue += o.total_amount || 0;
+      monthMap[key].orders  += 1;
+    }
+    const revenueChart = Object.values(monthMap)
+      .sort((a, b) => a._ts - b._ts)
+      .map(({ _ts, ...rest }) => ({ ...rest, revenue: +rest.revenue.toFixed(2) }));
 
-    const [categoryStats] = await pool.execute(
-      `SELECT c.name, COUNT(p.id) AS products
-       FROM categories c LEFT JOIN products p ON c.id = p.category_id AND p.is_active=1
-       GROUP BY c.id ORDER BY products DESC`
-    );
+    // Top products by units sold
+    const { data: orderItemsAll } = await supabaseAdmin
+      .from('order_items')
+      .select('product_id, product_name, thumbnail_url, quantity, subtotal');
+
+    const productMap = {};
+    for (const oi of orderItemsAll || []) {
+      if (!productMap[oi.product_id]) {
+        productMap[oi.product_id] = { name: oi.product_name, thumbnail_url: oi.thumbnail_url, sold: 0, revenue: 0 };
+      }
+      productMap[oi.product_id].sold    += oi.quantity;
+      productMap[oi.product_id].revenue += oi.subtotal;
+    }
+    const topProducts = Object.values(productMap)
+      .sort((a, b) => b.sold - a.sold)
+      .slice(0, 5)
+      .map(p => ({ ...p, revenue: +p.revenue.toFixed(2) }));
+
+    // Recent orders with user names
+    const { data: recentOrders } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        id, order_number, status, total_amount, created_at,
+        user_profiles!inner(name, phone)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const recentFormatted = (recentOrders || []).map(o => ({
+      id:           o.id,
+      order_number: o.order_number,
+      status:       o.status,
+      total:        o.total_amount,
+      created_at:   o.created_at,
+      user_name:    o.user_profiles?.name,
+      phone:        o.user_profiles?.phone,
+    }));
+
+    // Category stats
+    const { data: categories } = await supabaseAdmin
+      .from('categories')
+      .select('id, name');
+    const { data: products }   = await supabaseAdmin
+      .from('products')
+      .select('category_id')
+      .eq('is_active', 1);
+
+    const catMap = {};
+    for (const p of products || []) {
+      catMap[p.category_id] = (catMap[p.category_id] || 0) + 1;
+    }
+    const categoryStats = (categories || []).map(c => ({
+      name:     c.name,
+      products: catMap[c.id] || 0,
+    })).sort((a, b) => b.products - a.products);
 
     res.json({
       success: true,
       data: {
         stats: {
-          revenue: +revenue.total,
-          orders:  orders.total,
-          products: products.total,
-          users:   users.total,
-          pendingOrders: pending.total,
+          revenue:       +totalRevenue.toFixed(2),
+          orders:        ordersCount  || 0,
+          products:      productsCount || 0,
+          users:         usersCount   || 0,
+          pendingOrders: pendingCount || 0,
         },
         revenueChart,
         topProducts,
-        recentOrders,
+        recentOrders: recentFormatted,
         categoryStats,
       },
     });
@@ -64,20 +120,32 @@ exports.getOrders = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const cond   = status ? 'WHERE o.status = ?' : '';
-    const params = status ? [status, parseInt(limit), offset] : [parseInt(limit), offset];
 
-    const [orders] = await pool.execute(
-      `SELECT o.*, u.name AS user_name, u.phone,
-              COUNT(oi.id) AS item_count
-       FROM orders o
-       JOIN users u ON o.user_id = u.id
-       LEFT JOIN order_items oi ON o.id = oi.order_id
-       ${cond} GROUP BY o.id
-       ORDER BY o.created_at DESC LIMIT ? OFFSET ?`,
-      params
-    );
-    res.json({ success: true, data: orders });
+    let query = supabaseAdmin
+      .from('orders')
+      .select(`
+        *,
+        user_profiles!inner(name, phone),
+        order_items(id)
+      `)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
+
+    if (status) query = query.eq('status', status);
+
+    const { data: orders, error } = await query;
+    if (error) throw error;
+
+    const formatted = (orders || []).map(o => ({
+      ...o,
+      user_name:  o.user_profiles?.name,
+      phone:      o.user_profiles?.phone,
+      item_count: o.order_items?.length || 0,
+      user_profiles: undefined,
+      order_items:   undefined,
+    }));
+
+    res.json({ success: true, data: formatted });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders.' });
   }
@@ -87,11 +155,14 @@ exports.getOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const valid = ['pending','confirmed','processing','shipped','delivered','cancelled'];
+    const valid = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
     if (!valid.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status.' });
 
-    const extra = status === 'delivered' ? ', delivered_at = NOW()' : '';
-    await pool.execute(`UPDATE orders SET status = ?${extra} WHERE id = ?`, [status, req.params.id]);
+    const updates = { status };
+    if (status === 'delivered') updates.delivered_at = new Date().toISOString();
+
+    const { error } = await supabaseAdmin.from('orders').update(updates).eq('id', req.params.id);
+    if (error) throw error;
     res.json({ success: true, message: 'Order status updated.' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to update status.' });
@@ -103,16 +174,19 @@ exports.getUsers = async (req, res) => {
   try {
     const { page = 1, limit = 20, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const cond   = search ? "WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?" : '';
-    const params = search
-      ? [`%${search}%`, `%${search}%`, `%${search}%`, parseInt(limit), offset]
-      : [parseInt(limit), offset];
 
-    const [users] = await pool.execute(
-      `SELECT id, name, email, phone, role, is_active, is_verified, created_at
-       FROM users ${cond} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-      params
-    );
+    let query = supabaseAdmin
+      .from('user_profiles')
+      .select('id, name, email, phone, role, is_active, is_verified, created_at')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
+
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+    }
+
+    const { data: users, error } = await query;
+    if (error) throw error;
     res.json({ success: true, data: users });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch users.' });
@@ -123,10 +197,11 @@ exports.getUsers = async (req, res) => {
 exports.updateUser = async (req, res) => {
   try {
     const { is_active, role } = req.body;
-    await pool.execute(
-      'UPDATE users SET is_active = ?, role = ? WHERE id = ?',
-      [is_active, role, req.params.id]
-    );
+    const { error } = await supabaseAdmin
+      .from('user_profiles')
+      .update({ is_active, role })
+      .eq('id', req.params.id);
+    if (error) throw error;
     res.json({ success: true, message: 'User updated.' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to update user.' });
@@ -138,16 +213,28 @@ exports.getProducts = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const [rows] = await pool.execute(
-      `SELECT p.*, c.name AS category_name, b.name AS brand_name
-       FROM products p
-       LEFT JOIN categories c ON p.category_id = c.id
-       LEFT JOIN brands b ON p.brand_id = b.id
-       ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
-      [parseInt(limit), offset]
-    );
-    const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM products');
-    res.json({ success: true, data: rows, total });
+
+    const { data: rows, count, error } = await supabaseAdmin
+      .from('products')
+      .select(`
+        *,
+        categories(name),
+        brands(name)
+      `, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + parseInt(limit) - 1);
+
+    if (error) throw error;
+
+    const formatted = (rows || []).map(p => ({
+      ...p,
+      category_name: p.categories?.name,
+      brand_name:    p.brands?.name,
+      categories:    undefined,
+      brands:        undefined,
+    }));
+
+    res.json({ success: true, data: formatted, total: count || 0 });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch products.' });
   }
@@ -156,13 +243,24 @@ exports.getProducts = async (req, res) => {
 // ── GET /api/admin/stock-alerts ───────────────────────────
 exports.getStockAlerts = async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT p.id, p.name, p.stock, p.min_stock_alert, c.name AS category
-       FROM products p LEFT JOIN categories c ON p.category_id = c.id
-       WHERE p.stock <= p.min_stock_alert AND p.is_active = 1
-       ORDER BY p.stock ASC LIMIT 20`
-    );
-    res.json({ success: true, data: rows });
+    const { data: rows, error } = await supabaseAdmin
+      .from('products')
+      .select(`
+        id, name, stock, min_stock_alert,
+        categories(name)
+      `)
+      .eq('is_active', 1)
+      .order('stock', { ascending: true })
+      .limit(20);
+
+    if (error) throw error;
+
+    // Filter where stock <= min_stock_alert in JS (Supabase doesn't support column comparison in filter directly)
+    const alerts = (rows || [])
+      .filter(p => p.stock <= p.min_stock_alert)
+      .map(p => ({ ...p, category: p.categories?.name, categories: undefined }));
+
+    res.json({ success: true, data: alerts });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch alerts.' });
   }

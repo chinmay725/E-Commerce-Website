@@ -8,12 +8,12 @@ import './Home.css';
 const BANNERS = [
   {
     id: 1,
-    title: 'iPhone 15 Pro',
-    sub: 'Titanium. So strong, so light. Forged in a new grade of titanium.',
+    title: 'Discover Great Books',
+    sub: 'Expand your mind. Shop bestsellers, literature, and textbook materials.',
     bg: 'linear-gradient(135deg,#1C1C1E 0%,#2C2C2E 40%,#3A3A3C 100%)',
-    cta: 'Shop Mobiles',
-    img: '📱',
-    slug: 'mobiles',
+    cta: 'Shop Books',
+    img: '📚',
+    slug: 'books',
     accent: '#FF453A',
   },
   {
@@ -28,12 +28,12 @@ const BANNERS = [
   },
   {
     id: 3,
-    title: 'Smart Living',
-    sub: 'Appliances & home essentials built for modern life.',
+    title: 'Home & Kitchen',
+    sub: 'Decor, tableware & furniture built for elegant modern living.',
     bg: 'linear-gradient(135deg,#064E3B 0%,#059669 50%,#34D399 100%)',
     cta: 'Explore Home',
-    img: '🏠',
-    slug: 'appliances',
+    img: '🛋',
+    slug: 'home-kitchen',
     accent: '#6EE7B7',
   },
   {
@@ -49,12 +49,9 @@ const BANNERS = [
 ];
 
 const CATEGORIES = [
-  { name: 'Mobiles',     slug: 'mobiles',      icon: '📱', color: '#DBEAFE' },
   { name: 'Fashion',     slug: 'fashion',      icon: '👗', color: '#FCE7F3' },
-  { name: 'Appliances',  slug: 'appliances',   icon: '🏠', color: '#D1FAE5' },
-  { name: 'Sports',      slug: 'sports',       icon: '⚽', color: '#FEF3C7' },
-  { name: 'Health',      slug: 'health',       icon: '💊', color: '#FFE4E6' },
   { name: 'Electronics', slug: 'electronics',  icon: '💻', color: '#E0E7FF' },
+  { name: 'Sports',      slug: 'sports',       icon: '⚽', color: '#FEF3C7' },
   { name: 'Books',       slug: 'books',        icon: '📚', color: '#F3E8FF' },
   { name: 'Home & Kitchen',slug:'home-kitchen',icon: '🛋', color: '#FFF7ED' },
 ];
@@ -65,52 +62,6 @@ const OFFERS = [
   { icon: '🔒', title: 'Secure Payment',  sub: '100% safe checkout',   bg: '#FFF7ED' },
   { icon: '🎁', title: 'Best Prices',     sub: 'Price match guarantee',bg: '#FDF4FF' },
 ];
-
-function useCountdown(targetMs) {
-  const [time, setTime] = useState({ h: 0, m: 0, s: 0 });
-  useEffect(() => {
-    const tick = () => {
-      const diff = Math.max(0, targetMs - Date.now());
-      setTime({
-        h: Math.floor(diff / 3600000),
-        m: Math.floor((diff % 3600000) / 60000),
-        s: Math.floor((diff % 60000) / 1000),
-      });
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [targetMs]);
-  return time;
-}
-
-function FlashSale() {
-  // Flash sale ends 8 hours from page load
-  const [target] = useState(() => Date.now() + 8 * 3600000);
-  const { h, m, s } = useCountdown(target);
-  const pad = n => String(n).padStart(2, '0');
-
-  return (
-    <div className="flash-strip">
-      <div className="flash-strip__inner">
-        <div className="flash-label">
-          <span>⚡</span>
-          <strong>Flash Sale</strong>
-        </div>
-        <div className="flash-timer">
-          <div className="timer-unit"><strong>{pad(h)}</strong><small>hrs</small></div>
-          <span className="timer-sep">:</span>
-          <div className="timer-unit"><strong>{pad(m)}</strong><small>min</small></div>
-          <span className="timer-sep">:</span>
-          <div className="timer-unit"><strong>{pad(s)}</strong><small>sec</small></div>
-        </div>
-        <Link to="/products?trending=1" className="btn btn-sm" style={{ background: 'rgba(255,255,255,.12)', color: 'white', border: '1px solid rgba(255,255,255,.2)', marginLeft: 'auto' }}>
-          See Deals →
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 function HeroBanner() {
   const [current, setCurrent] = useState(0);
@@ -220,9 +171,6 @@ export default function Home() {
   return (
     <div className="home">
       <HeroBanner />
-
-      {/* Flash Sale */}
-      <FlashSale />
 
       {/* Offer Strip */}
       <section className="offer-strip">

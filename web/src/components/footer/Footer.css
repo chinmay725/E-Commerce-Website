@@ -33,7 +33,7 @@
 }
 .footer-logo strong { color: var(--brand); }
 .footer-brand > p {
-  font-size: 14px; line-height: 1.65;
+  font-size: 15px; line-height: 1.65;
   color: rgba(255,255,255,.5);
   max-width: 280px;
 }
@@ -61,13 +61,13 @@
 
 /* Link cols */
 .footer-col h4 {
-  font-size: 12px; font-weight: 800;
+  font-size: 14px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .1em;
   color: white; margin-bottom: 16px;
 }
 .footer-col ul { display: flex; flex-direction: column; gap: 10px; }
 .footer-col li a {
-  font-size: 13px; font-weight: 500;
+  font-size: 15px; font-weight: 500;
   color: rgba(255,255,255,.5);
   transition: color var(--t) var(--ease);
   display: inline-block;
@@ -82,7 +82,7 @@
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 16px;
 }
-.footer__bottom p { font-size: 13px; color: rgba(255,255,255,.35); }
+.footer__bottom p { font-size: 14px; color: rgba(255,255,255,.35); }
 
 .payment-icons { display: flex; gap: 6px; flex-wrap: wrap; }
 .payment-icon {
@@ -104,17 +104,17 @@
   margin-top: 8px;
 }
 .footer-newsletter h4 {
-  font-size: 14px; font-weight: 700; color: white;
+  font-size: 15px; font-weight: 700; color: white;
   margin-bottom: 6px; text-transform: none; letter-spacing: 0;
 }
-.footer-newsletter p { font-size: 13px; color: rgba(255,255,255,.4); margin-bottom: 14px; }
+.footer-newsletter p { font-size: 14px; color: rgba(255,255,255,.4); margin-bottom: 14px; }
 .newsletter-form { display: flex; gap: 6px; }
 .newsletter-input {
   flex: 1; height: 38px; padding: 0 14px;
   background: rgba(255,255,255,.07);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: var(--r-full);
-  color: white; font-size: 13px;
+  color: white; font-size: 14px;
   font-family: var(--font-body); outline: none;
 }
 .newsletter-input::placeholder { color: rgba(255,255,255,.3); }
@@ -123,7 +123,7 @@
   height: 38px; padding: 0 16px;
   background: var(--brand); color: white;
   border-radius: var(--r-full);
-  font-size: 13px; font-weight: 600;
+  font-size: 14px; font-weight: 600;
   white-space: nowrap;
   transition: background var(--t) var(--ease);
 }

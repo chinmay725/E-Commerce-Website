@@ -1,12 +1,12 @@
 /**
- * ShopKart — Database Seeder
- * Run: node utils/seeder.js
+ * ShopKart — Database Seeder (Supabase)
+ * Run: cd api && npm run seed
  *
  * Seeds realistic products across all categories
  * so the store looks populated out of the box.
  */
-require('dotenv').config({ path: '../.env' });
-const pool = require('../config/db');
+require('dotenv').config();
+const { supabaseAdmin } = require('../config/supabase');
 
 const products = [
   /* ── MOBILES ─────────────────────────── */
@@ -80,7 +80,7 @@ const products = [
     price: 1299, mrp: 2990, stock: 200,
     is_featured: true, is_trending: true,
     thumbnail_url: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=400&q=80',
-    specifications: { 'Driver': '8mm', 'Battery': '42 hrs total', 'Connectivity': 'Bluetooth 5.2', 'Water Resistance': 'IPX4' },
+    specifications: { Driver: '8mm', Battery: '42 hrs total', Connectivity: 'Bluetooth 5.2', 'Water Resistance': 'IPX4' },
   },
   {
     name: 'Apple MacBook Air M3',
@@ -122,7 +122,7 @@ const products = [
     price: 1299, mrp: 1999, stock: 120,
     is_featured: true,
     thumbnail_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&q=80',
-    specifications: { Material: '100% Cotton', Fit: 'Relaxed', Occasion: 'Casual', 'Care': 'Machine washable' },
+    specifications: { Material: '100% Cotton', Fit: 'Relaxed', Occasion: 'Casual', Care: 'Machine washable' },
   },
 
   /* ── SPORTS ──────────────────────────── */
@@ -222,76 +222,101 @@ const products = [
   },
 ];
 
+// ── Helper: build slug ──────────────────────────────────────
+const makeSlug = (name) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') +
+  '-' + Date.now().toString(36);
+
 async function seed() {
-  console.log('🌱 Starting ShopKart database seeder...\n');
+  console.log('🌱 Starting ShopKart Supabase seeder...\n');
 
   try {
-    // Fetch category and brand maps
-    const [cats]   = await pool.execute('SELECT id, slug FROM categories');
-    const [brands] = await pool.execute('SELECT id, name FROM brands');
+    // Fetch categories and brands maps
+    const { data: cats,   error: catErr }   = await supabaseAdmin.from('categories').select('id, slug');
+    const { data: brands, error: brandErr } = await supabaseAdmin.from('brands').select('id, name');
 
-    const catMap   = Object.fromEntries(cats.map(c => [c.slug, c.id]));
-    const brandMap = Object.fromEntries(brands.map(b => [b.name, b.id]));
+    if (catErr)   throw catErr;
+    if (brandErr) throw brandErr;
+
+    const catMap   = Object.fromEntries((cats   || []).map(c => [c.slug, c.id]));
+    const brandMap = Object.fromEntries((brands || []).map(b => [b.name, b.id]));
 
     let inserted = 0;
     let skipped  = 0;
 
     for (const p of products) {
-      // Check duplicate
-      const [exists] = await pool.execute('SELECT id FROM products WHERE name = ? LIMIT 1', [p.name]);
-      if (exists.length) { skipped++; continue; }
+      // Check for duplicate
+      const { data: exists } = await supabaseAdmin
+        .from('products')
+        .select('id')
+        .eq('name', p.name)
+        .limit(1);
+
+      if (exists?.length) { skipped++; continue; }
 
       const catId   = catMap[p.category];
       const brandId = brandMap[p.brand] || null;
 
-      if (!catId) { console.warn(`⚠️  Category '${p.category}' not found for: ${p.name}`); continue; }
+      if (!catId) {
+        console.warn(`⚠️  Category '${p.category}' not found for: ${p.name}`);
+        continue;
+      }
 
-      // Build slug
-      const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36);
+      const slug = makeSlug(p.name);
       const sku  = 'SKU-' + Date.now().toString(36).toUpperCase();
 
-      const [result] = await pool.execute(
-        `INSERT INTO products
-         (name, slug, short_description, description, category_id, brand_id, sku,
-          price, mrp, stock, thumbnail_url, is_featured, is_trending, specifications)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          p.name, slug, p.short_description || null, p.description || null,
-          catId, brandId, sku,
-          p.price, p.mrp || null, p.stock,
-          p.thumbnail_url || null,
-          p.is_featured ? 1 : 0,
-          p.is_trending ? 1 : 0,
-          p.specifications ? JSON.stringify(p.specifications) : null,
-        ]
-      );
+      const { data: product, error: insertErr } = await supabaseAdmin
+        .from('products')
+        .insert({
+          name:              p.name,
+          slug,
+          short_description: p.short_description || null,
+          description:       p.description       || null,
+          category_id:       catId,
+          brand_id:          brandId,
+          sku,
+          price:             p.price,
+          mrp:               p.mrp    || null,
+          stock:             p.stock,
+          thumbnail_url:     p.thumbnail_url || null,
+          is_featured:       p.is_featured ? 1 : 0,
+          is_trending:       p.is_trending  ? 1 : 0,
+          specifications:    p.specifications ? JSON.stringify(p.specifications) : null,
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
 
       // Insert primary image
       if (p.thumbnail_url) {
-        await pool.execute(
-          'INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary) VALUES (?,?,?,0,1)',
-          [result.insertId, p.thumbnail_url, p.name]
-        );
+        await supabaseAdmin.from('product_images').insert({
+          product_id: product.id,
+          url:        p.thumbnail_url,
+          alt_text:   p.name,
+          sort_order: 0,
+          is_primary: 1,
+        });
       }
 
       inserted++;
       console.log(`  ✅ ${p.name}`);
-      await new Promise(r => setTimeout(r, 30)); // avoid slug collision
+      await new Promise(r => setTimeout(r, 30)); // avoid slug collision on rapid inserts
     }
 
     console.log(`\n✨ Seeding complete!`);
     console.log(`   Inserted: ${inserted} products`);
     console.log(`   Skipped:  ${skipped} (already exist)`);
 
-    // Summary
-    const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM products');
-    const [[{ featured }]] = await pool.execute("SELECT COUNT(*) AS featured FROM products WHERE is_featured=1");
-    const [[{ trending }]] = await pool.execute("SELECT COUNT(*) AS trending FROM products WHERE is_trending=1");
-    console.log(`\n📊 Database now has:`);
+    // Summary counts
+    const { count: total }    = await supabaseAdmin.from('products').select('*', { count: 'exact', head: true });
+    const { count: featured } = await supabaseAdmin.from('products').select('*', { count: 'exact', head: true }).eq('is_featured', 1);
+    const { count: trending } = await supabaseAdmin.from('products').select('*', { count: 'exact', head: true }).eq('is_trending', 1);
+
+    console.log(`\n📊 Supabase database now has:`);
     console.log(`   Total products:    ${total}`);
     console.log(`   Featured:          ${featured}`);
     console.log(`   Trending:          ${trending}`);
-
   } catch (err) {
     console.error('❌ Seeder failed:', err.message);
     console.error(err.stack);

@@ -25,31 +25,66 @@ const StatCard = ({ icon, label, value, color, sub, delay = 0 }) => (
   </motion.div>
 );
 
-// ── Add Product Modal ──────────────────────────────────
-function AddProductModal({ categories, onClose, onSave }) {
-  const [form, setForm] = useState({
+// ── Product Form Modal (Add + Edit) ───────────────────
+function ProductModal({ categories, brands, product, onClose, onSave }) {
+  const isEdit = !!product;
+  const blank = {
     name: '', description: '', short_description: '',
-    category_id: '', brand_id: '', price: '', mrp: '', stock: '10',
-    is_featured: false, is_trending: false,
+    category_id: '', brand_id: '', price: '', mrp: '',
+    stock: '10', is_featured: false, is_trending: false,
     images: [{ url: '', alt: '' }],
+  };
+
+  const [form, setForm] = useState(() => {
+    if (!isEdit) return blank;
+    return {
+      name:              product.name || '',
+      description:       product.description || '',
+      short_description: product.short_description || '',
+      category_id:       product.category_id || '',
+      brand_id:          product.brand_id || '',
+      price:             product.price || '',
+      mrp:               product.mrp || '',
+      stock:             product.stock ?? 10,
+      is_featured:       !!product.is_featured,
+      is_trending:       !!product.is_trending,
+      images:            product.thumbnail_url
+                           ? [{ url: product.thumbnail_url, alt: product.name }]
+                           : [{ url: '', alt: '' }],
+    };
   });
+
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Live thumbnail preview from first image URL
+  const previewUrl = form.images[0]?.url?.trim();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post('/products', {
+      const payload = {
         ...form,
-        price: parseFloat(form.price),
-        mrp: parseFloat(form.mrp) || null,
-        stock: parseInt(form.stock),
-      });
-      toast.success('Product created!');
-      onSave(); onClose();
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed to create product'); }
-    finally { setSaving(false); }
+        price:   parseFloat(form.price),
+        mrp:     parseFloat(form.mrp) || null,
+        stock:   parseInt(form.stock) || 0,
+        images:  form.images.filter(i => i.url.trim()),
+      };
+      if (isEdit) {
+        await api.put(`/products/${product.id}`, payload);
+        toast.success('Product updated!');
+      } else {
+        await api.post('/products', payload);
+        toast.success('Product created!');
+      }
+      onSave();
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} product`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -63,14 +98,17 @@ function AddProductModal({ categories, onClose, onSave }) {
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
       >
         <div className="modal-header">
-          <h3>Add New Product</h3>
+          <h3>{isEdit ? '✏️ Edit Product' : '➕ Add New Product'}</h3>
           <button onClick={onClose} className="modal-close" aria-label="Close">✕</button>
         </div>
+
         <form onSubmit={handleSubmit} className="modal-body">
+          {/* Name + Category */}
           <div className="form-row" style={{ marginBottom: 16 }}>
             <div className="form-group">
               <label className="label">Product Name *</label>
-              <input className="input" value={form.name} onChange={e => set('name', e.target.value)} required placeholder="e.g. iPhone 15 Pro" />
+              <input className="input" value={form.name} onChange={e => set('name', e.target.value)}
+                required placeholder="e.g. iPhone 15 Pro" />
             </div>
             <div className="form-group">
               <label className="label">Category *</label>
@@ -80,67 +118,127 @@ function AddProductModal({ categories, onClose, onSave }) {
               </select>
             </div>
           </div>
-          <div className="form-row" style={{ marginBottom: 16 }}>
+
+          {/* Price + MRP + Stock */}
+          <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 16 }}>
             <div className="form-group">
               <label className="label">Price (₹) *</label>
-              <input className="input" type="number" value={form.price} onChange={e => set('price', e.target.value)} required min="0" placeholder="0" />
+              <input className="input" type="number" value={form.price} onChange={e => set('price', e.target.value)}
+                required min="0" step="0.01" placeholder="0" />
             </div>
             <div className="form-group">
               <label className="label">MRP (₹)</label>
-              <input className="input" type="number" value={form.mrp} onChange={e => set('mrp', e.target.value)} min="0" placeholder="0" />
+              <input className="input" type="number" value={form.mrp} onChange={e => set('mrp', e.target.value)}
+                min="0" step="0.01" placeholder="0" />
             </div>
             <div className="form-group">
               <label className="label">Stock</label>
               <input className="input" type="number" value={form.stock} onChange={e => set('stock', e.target.value)} min="0" />
             </div>
           </div>
+
+          {/* Brand */}
+          {brands.length > 0 && (
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="label">Brand</label>
+              <select className="input" value={form.brand_id} onChange={e => set('brand_id', e.target.value)}>
+                <option value="">No brand</option>
+                {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Short description */}
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label className="label">Short Description</label>
-            <input className="input" value={form.short_description} onChange={e => set('short_description', e.target.value)} placeholder="One-line product summary" />
+            <input className="input" value={form.short_description} onChange={e => set('short_description', e.target.value)}
+              placeholder="One-line product summary shown in listings" />
           </div>
+
+          {/* Full description */}
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label className="label">Full Description</label>
-            <textarea className="input" rows={3} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Detailed product description" style={{ resize: 'vertical', minHeight: 80 }} />
+            <textarea className="input" rows={3} value={form.description} onChange={e => set('description', e.target.value)}
+              placeholder="Detailed product description" style={{ resize: 'vertical', minHeight: 80 }} />
           </div>
+
+          {/* Images + preview */}
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label className="label">Product Images (URLs)</label>
-            {form.images.map((img, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <input
-                  className="input"
-                  placeholder={`Image ${i + 1} URL`}
-                  value={img.url}
-                  onChange={e => {
-                    const imgs = [...form.images]; imgs[i].url = e.target.value; set('images', imgs);
-                  }}
-                />
-                {i > 0 && (
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => set('images', form.images.filter((_, j) => j !== i))}>✕</button>
-                )}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                {form.images.map((img, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input
+                      className="input"
+                      placeholder={i === 0 ? 'Primary image URL (shown in listings)' : `Image ${i + 1} URL`}
+                      value={img.url}
+                      onChange={e => {
+                        const imgs = [...form.images];
+                        imgs[i] = { ...imgs[i], url: e.target.value };
+                        set('images', imgs);
+                      }}
+                    />
+                    {i > 0 && (
+                      <button type="button" className="btn btn-secondary btn-sm"
+                        onClick={() => set('images', form.images.filter((_, j) => j !== i))}>✕</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="btn btn-secondary btn-sm"
+                  onClick={() => set('images', [...form.images, { url: '', alt: '' }])}>
+                  + Add Image
+                </button>
               </div>
-            ))}
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => set('images', [...form.images, { url: '', alt: '' }])}>
-              + Add Image
-            </button>
+              {/* Live preview */}
+              {previewUrl && (
+                <div style={{
+                  width: 90, height: 90, flexShrink: 0,
+                  border: '2px solid var(--border-light)',
+                  borderRadius: 'var(--r-md)',
+                  overflow: 'hidden', background: 'var(--bg-secondary)',
+                }}>
+                  <img
+                    src={previewUrl}
+                    alt="preview"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.target.style.display = 'none'; }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+
+          {/* Featured / Trending toggles */}
+          <div style={{ display: 'flex', gap: 24, marginBottom: 24 }}>
             {[['is_featured', '⭐ Featured'], ['is_trending', '🔥 Trending']].map(([key, label]) => (
               <label key={key} className="toggle-inline" style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <button
                   type="button"
                   className={`admin-toggle${form[key] ? ' on' : ''}`}
                   onClick={() => set(key, !form[key])}
-                  aria-checked={form[key]}
-                  role="switch"
+                  aria-checked={form[key]} role="switch"
                 />
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
               </label>
             ))}
           </div>
+
+          {/* Discount badge preview */}
+          {form.mrp && form.price && parseFloat(form.mrp) > parseFloat(form.price) && (
+            <div style={{
+              background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)',
+              borderRadius: 'var(--r)', padding: '8px 14px', marginBottom: 16,
+              fontSize: 13, fontWeight: 600, color: 'var(--success)',
+            }}>
+              💚 {Math.round((1 - parseFloat(form.price) / parseFloat(form.mrp)) * 100)}% discount — customers will see this
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--border-light)' }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? <span className="spinner" /> : 'Create Product'}
+              {saving ? <span className="spinner" /> : isEdit ? 'Save Changes' : 'Create Product'}
             </button>
           </div>
         </form>
@@ -159,7 +257,10 @@ export default function Admin() {
   const [orders, setOrders]       = useState([]);
   const [users, setUsers]         = useState([]);
   const [categories, setCategories] = useState([]);
+  const [brands, setBrands]       = useState([]);
   const [addModal, setAddModal]   = useState(false);
+  const [editProduct, setEditProduct] = useState(null); // product being edited
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // product to soft-delete
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
 
@@ -171,12 +272,14 @@ export default function Admin() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [dash, cats] = await Promise.all([
+      const [dash, cats, brnds] = await Promise.all([
         api.get('/admin/dashboard'),
         api.get('/categories'),
+        api.get('/products/brands').catch(() => ({ data: { data: [] } })),
       ]);
       setDashboard(dash.data.data);
       setCategories(cats.data.data);
+      setBrands(brnds.data.data || []);
     } catch {} finally { setLoading(false); }
   };
 
@@ -206,14 +309,25 @@ export default function Admin() {
     } catch { toast.error('Failed to update'); }
   };
 
-  const toggleProduct = async (id, isActive) => {
-    await api.put(`/products/${id}`, { is_active: isActive ? 0 : 1 });
+  const refreshProducts = async () => {
     const { data } = await api.get('/admin/products');
     setProducts(data.data);
+  };
+
+  const toggleProduct = async (id, isActive) => {
+    await api.put(`/products/${id}`, { is_active: isActive ? 0 : 1 });
+    await refreshProducts();
     toast.success(isActive ? 'Product deactivated' : 'Product activated');
   };
 
-  if (!isAdmin) return null;
+  const handleDeleteProduct = async (id) => {
+    try {
+      await api.delete(`/products/${id}`);
+      toast.success('Product removed');
+      setDeleteConfirm(null);
+      await refreshProducts();
+    } catch { toast.error('Failed to remove product'); }
+  };  if (!isAdmin) return null;
 
   const NAV = [
     { section: 'Overview' },

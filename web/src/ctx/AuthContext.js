@@ -1,148 +1,122 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase, signUp, signIn, signInWithPhone, signOut, getCurrentUser, onAuthStateChange } from '../lib/supabase';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser]       = useState(null);
-  const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user,    setUser]    = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sk_user')) || null; } catch { return null; }
+  });
+  const [loading, setLoading] = useState(false);
 
-  // Initialize auth state on mount
+  // Restore session on mount — verify token is still valid
   useEffect(() => {
-    const initAuth = async () => {
-      setLoading(true);
-      try {
-        const { user: authUser } = await getCurrentUser();
-        if (authUser) {
-          // Fetch user profile from public.user_profiles table
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', authUser.id)
-            .single();
-          
-          setUser({ ...authUser, ...profile });
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    // Listen for auth state changes
-    const { data: { subscription } } = onAuthStateChange(async (event, session) => {
-      setSession(session);
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-        setUser({ ...session.user, ...profile });
-      } else {
+    const token = localStorage.getItem('sk_token');
+    if (!token) return;
+    api.get('/auth/me')
+      .then(({ data }) => { if (data.success) setUser(data.user); })
+      .catch(() => {
+        // Token expired or invalid — clear storage
+        localStorage.removeItem('sk_token');
+        localStorage.removeItem('sk_user');
         setUser(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+      });
   }, []);
 
-  const sendOtp = async (phone) => {
+  // ── Send OTP ─────────────────────────────────────────────
+  const sendOtp = async (email) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone,
-        options: {
-          channel: 'sms'
-        }
-      });
-      if (error) throw error;
-      toast.success('OTP sent successfully');
-      return { success: true };
-    } catch (error) {
-      toast.error(error.message || 'Failed to send OTP');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
+      const { data } = await api.post('/auth/send-otp', { email });
+      if (!data.success) throw new Error(data.message);
 
-  const verifyOtp = async (phone, code, name) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone,
-        token: code,
-        type: 'sms'
-      });
-      
-      if (error) throw error;
-      
-      // Update user profile with name if provided
-      if (name && data.user) {
-        await supabase
-          .from('user_profiles')
-          .update({ name })
-          .eq('id', data.user.id);
+      // In dev mode the server echoes a devCode when no SMTP is configured
+      if (data.provider === 'console' && data.devCode) {
+        toast('🛠 Dev mode — check console for OTP', { icon: '⚠️', duration: 5000 });
+      } else {
+        toast.success('Verification code sent to ' + email);
       }
-      
-      toast.success('Login successful');
-      return { success: true, user: data.user };
-    } catch (error) {
-      toast.error(error.message || 'Invalid OTP');
-      throw error;
+
+      return data; // includes { isNewUser, provider, devCode? }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to send verification code';
+      toast.error(msg);
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Verify OTP ────────────────────────────────────────────
+  const verifyOtp = async (email, code, name) => {
+    setLoading(true);
+    try {
+      const { data } = await api.post('/auth/verify-otp', { email, code, name });
+      if (!data.success) throw new Error(data.message);
+
+      // Persist token and user profile
+      localStorage.setItem('sk_token', data.token);
+      localStorage.setItem('sk_user',  JSON.stringify(data.user));
+      setUser(data.user);
+
+      toast.success(data.isNew ? 'Account created! Welcome 🎉' : 'Login successful!');
+      return data;
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Invalid verification code';
+      toast.error(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // ── Admin Login (email + password) ────────────────────────
   const adminLogin = async (email, password) => {
     setLoading(true);
     try {
-      const { data, error } = await signIn(email, password);
-      if (error) throw error;
-      
-      // Check if user is admin
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
-      
-      if (profile?.role !== 'admin') {
-        await signOut();
+      const { data } = await api.post('/auth/login', { email, password });
+      if (!data.success) throw new Error(data.message);
+
+      if (data.user?.role !== 'admin') {
         throw new Error('Access denied. Admin only.');
       }
-      
-      toast.success('Welcome back, Admin!');
-      return { success: true, user: data.user };
-    } catch (error) {
-      toast.error(error.message || 'Login failed');
-      throw error;
+
+      localStorage.setItem('sk_token', data.token);
+      localStorage.setItem('sk_user',  JSON.stringify(data.user));
+      setUser(data.user);
+
+      toast.success('Welcome back, Admin! 👋');
+      return data;
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Login failed';
+      toast.error(msg);
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = useCallback(async () => {
-    try {
-      await signOut();
-      setUser(null);
-      setSession(null);
-      toast.success('Logged out successfully');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+  // ── Logout ────────────────────────────────────────────────
+  const logout = useCallback(() => {
+    localStorage.removeItem('sk_token');
+    localStorage.removeItem('sk_user');
+    setUser(null);
+    toast.success('Logged out successfully');
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, sendOtp, verifyOtp, adminLogin, logout, isAdmin: user?.role === 'admin' }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      sendOtp,
+      verifyOtp,
+      adminLogin,
+      logout,
+      isAdmin: user?.role === 'admin',
+      isLoggedIn: !!user,
+    }}>
       {children}
     </AuthContext.Provider>
   );

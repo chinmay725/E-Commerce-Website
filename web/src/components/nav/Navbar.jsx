@@ -7,14 +7,11 @@ import api from '../../lib/api';
 import './Navbar.css';
 
 const categories = [
-  { name: 'Mobiles',     slug: 'mobiles',     icon: '📱' },
   { name: 'Fashion',     slug: 'fashion',     icon: '👗' },
   { name: 'Electronics', slug: 'electronics', icon: '💻' },
-  { name: 'Appliances',  slug: 'appliances',  icon: '🏠' },
   { name: 'Sports',      slug: 'sports',      icon: '⚽' },
-  { name: 'Health',      slug: 'health',      icon: '💊' },
   { name: 'Books',       slug: 'books',       icon: '📚' },
-  { name: 'Home',        slug: 'home-kitchen',icon: '🛋' },
+  { name: 'Home & Kitchen', slug: 'home-kitchen', icon: '🛋' },
 ];
 
 const SunIcon = () => (
@@ -225,7 +222,7 @@ export default function Navbar({ theme, toggleTheme }) {
                   >
                     <div className="dropdown-header">
                       <strong>{user.name}</strong>
-                      <span>{user.phone}</span>
+                      <span>{user.email || user.phone}</span>
                     </div>
                     {DROPDOWN_ITEMS.map(item => (
                       <Link key={item.to} to={item.to} className="dropdown-item" role="menuitem">

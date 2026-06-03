@@ -12,8 +12,15 @@ const authRoutes     = require('./routes/auth');
 const productRoutes  = require('./routes/products');
 const { catRouter, cartRouter, orderRouter, userRouter, adminRouter, reviewRouter } = require('./routes/allRoutes');
 
-// Initialize DB pool
-require('./config/db');
+// Initialize Supabase & verify connectivity
+const { supabaseAdmin } = require('./config/supabase');
+supabaseAdmin.from('categories').select('id').limit(1).then(({ error }) => {
+  if (error) {
+    console.warn('⚠️  Supabase schema not found yet — please run schema.supabase.sql in the Supabase dashboard.');
+  } else {
+    console.log('✅ Supabase connected successfully');
+  }
+});
 
 const app = express();
 

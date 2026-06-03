@@ -30,10 +30,16 @@ export default function ProductCard({ product, index = 0 }) {
     : 0;
 
   const handleAddToCart = async (e) => {
+    console.log('[ProductCard] handleAddToCart called for product id:', product.id);
     e.preventDefault(); e.stopPropagation();
-    if (product.stock === 0) return;
+    if (product.stock === 0) {
+      console.log('[ProductCard] Product out of stock:', product.id);
+      return;
+    }
     setAdding(true);
-    await addToCart(product.id);
+    console.log('[ProductCard] Calling addToCart from useCart...');
+    const result = await addToCart(product);
+    console.log('[ProductCard] addToCart result:', result);
     setAdding(false);
   };
 

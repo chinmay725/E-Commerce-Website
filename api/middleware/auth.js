@@ -1,5 +1,5 @@
-const jwt  = require('jsonwebtoken');
-const pool = require('../config/db');
+const jwt           = require('jsonwebtoken');
+const { supabaseAdmin } = require('../config/supabase');
 
 /**
  * Protect routes – verifies Bearer token and attaches req.user
@@ -11,19 +11,20 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'No token provided. Access denied.' });
     }
 
-    const token = authHeader.split(' ')[1];
+    const token   = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, phone, role, is_active FROM users WHERE id = ? LIMIT 1',
-      [decoded.id]
-    );
+    const { data: user, error } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id, name, email, phone, role, is_active')
+      .eq('id', decoded.id)
+      .single();
 
-    if (!rows.length || !rows[0].is_active) {
+    if (error || !user || !user.is_active) {
       return res.status(401).json({ success: false, message: 'User not found or deactivated.' });
     }
 
-    req.user = rows[0];
+    req.user = user;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -52,11 +53,12 @@ const optionalAuth = async (req, res, next) => {
     if (authHeader?.startsWith('Bearer ')) {
       const token   = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const [rows]  = await pool.execute(
-        'SELECT id, name, email, phone, role FROM users WHERE id = ? LIMIT 1',
-        [decoded.id]
-      );
-      if (rows.length) req.user = rows[0];
+      const { data: user } = await supabaseAdmin
+        .from('user_profiles')
+        .select('id, name, email, phone, role')
+        .eq('id', decoded.id)
+        .single();
+      if (user) req.user = user;
     }
   } catch (_) { /* ignore */ }
   next();

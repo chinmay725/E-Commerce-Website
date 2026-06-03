@@ -59,6 +59,16 @@ function NotFound() {
 const CartPage    = lazy(() => import('./pages/Misc').then(m => ({ default: m.CartPage })));
 const OrdersPage  = lazy(() => import('./pages/Misc').then(m => ({ default: m.OrdersPage })));
 const Dashboard   = lazy(() => import('./pages/Misc').then(m => ({ default: m.Dashboard })));
+const AboutPage   = lazy(() => import('./pages/Misc').then(m => ({ default: m.AboutPage })));
+const CareersPage = lazy(() => import('./pages/Misc').then(m => ({ default: m.CareersPage })));
+const PressPage   = lazy(() => import('./pages/Misc').then(m => ({ default: m.PressPage })));
+const BlogPage    = lazy(() => import('./pages/Misc').then(m => ({ default: m.BlogPage })));
+const FaqPage     = lazy(() => import('./pages/Misc').then(m => ({ default: m.FaqPage })));
+const ContactPage = lazy(() => import('./pages/Misc').then(m => ({ default: m.ContactPage })));
+const ReturnsPage = lazy(() => import('./pages/Misc').then(m => ({ default: m.ReturnsPage })));
+const PrivacyPage = lazy(() => import('./pages/Misc').then(m => ({ default: m.PrivacyPage })));
+const TermsPage   = lazy(() => import('./pages/Misc').then(m => ({ default: m.TermsPage })));
+const SitemapPage = lazy(() => import('./pages/Misc').then(m => ({ default: m.SitemapPage })));
 
 function AppShell() {
   const [theme, setTheme] = useState(() => localStorage.getItem('sk_theme') || 'light');
@@ -109,6 +119,17 @@ function AppShell() {
             <Route path="/wishlist"  element={<Protected><Wishlist /></Protected>} />
             <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
 
+            <Route path="/about"     element={<AboutPage />} />
+            <Route path="/careers"   element={<CareersPage />} />
+            <Route path="/press"     element={<PressPage />} />
+            <Route path="/blog"      element={<BlogPage />} />
+            <Route path="/faq"       element={<FaqPage />} />
+            <Route path="/contact"   element={<ContactPage />} />
+            <Route path="/returns"   element={<ReturnsPage />} />
+            <Route path="/privacy"   element={<PrivacyPage />} />
+            <Route path="/terms"     element={<TermsPage />} />
+            <Route path="/sitemap"   element={<SitemapPage />} />
+
             <Route path="/admin"   element={<Protected adminRequired><Admin /></Protected>} />
             <Route path="/admin/*" element={<Protected adminRequired><Admin /></Protected>} />
 
@@ -120,6 +141,7 @@ function AppShell() {
 
       <Toaster
         position="top-right"
+        containerStyle={{ zIndex: 99999 }}
         toastOptions={{
           duration: 3200,
           style: {
@@ -131,6 +153,7 @@ function AppShell() {
             fontSize: '14px',
             boxShadow: 'var(--s-md)',
             padding: '12px 16px',
+            zIndex: 99999,
           },
           success: { iconTheme: { primary: '#10B981', secondary: 'white' } },
           error:   { iconTheme: { primary: '#EF4444', secondary: 'white' } },

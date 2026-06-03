@@ -51,15 +51,24 @@ export default function ProductDetail() {
   }, [slug]);
 
   const handleAddToCart = async () => {
+    console.log('[Detail] handleAddToCart called for product id:', product.id, 'qty:', qty);
     setAdding(true);
-    await addToCart(product.id, qty);
+    console.log('[Detail] Calling addToCart from useCart...');
+    const result = await addToCart(product, qty);
+    console.log('[Detail] addToCart result:', result);
     setAdding(false);
   };
 
   const handleBuyNow = async () => {
-    if (!user) { navigate('/login'); return; }
+    console.log('[Detail] handleBuyNow called for product id:', product.id, 'user is:', user);
+    if (!user) {
+      console.log('[Detail] No user found, redirecting to /login');
+      navigate('/login');
+      return;
+    }
     setBuyNow(true);
-    await addToCart(product.id, qty);
+    console.log('[Detail] Calling addToCart for Buy Now...');
+    await addToCart(product, qty);
     setBuyNow(false);
     navigate('/checkout');
   };

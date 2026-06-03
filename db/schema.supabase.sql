@@ -1,24 +1,46 @@
+-- ============================================================
 -- ShopKart Supabase Database Schema
--- PostgreSQL
+-- PostgreSQL — Custom JWT Auth (no Supabase Auth dependency)
+-- Run this in: Supabase Dashboard → SQL Editor
+-- ============================================================
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ================================================
--- USERS TABLE (using Supabase Auth)
+-- USERS TABLE (custom auth, no Supabase Auth FK)
 -- ================================================
--- Note: Supabase Auth manages users in auth.users
--- We'll create a public profile table linked to auth.users
 CREATE TABLE IF NOT EXISTS public.user_profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT UNIQUE NOT NULL,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE,
   name TEXT,
   phone TEXT UNIQUE,
   role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   avatar_url TEXT,
+  password_hash TEXT,          -- for admin email/password login
+  is_active INTEGER DEFAULT 1 CHECK (is_active IN (0, 1)),
+  is_verified INTEGER DEFAULT 0 CHECK (is_verified IN (0, 1)),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_phone ON public.user_profiles(phone);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON public.user_profiles(email);
+
+-- ================================================
+-- OTP CODES TABLE
+-- ================================================
+CREATE TABLE IF NOT EXISTS public.otp_codes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  phone TEXT NOT NULL,
+  code TEXT NOT NULL,
+  purpose TEXT DEFAULT 'login',
+  used INTEGER DEFAULT 0 CHECK (used IN (0, 1)),
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_otp_phone ON public.otp_codes(phone);
 
 -- ================================================
 -- ADDRESSES TABLE
@@ -26,6 +48,7 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
 CREATE TABLE IF NOT EXISTS public.addresses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  label TEXT DEFAULT 'Home',
   full_name TEXT NOT NULL,
   phone TEXT NOT NULL,
   address_line1 TEXT NOT NULL,
@@ -137,7 +160,8 @@ CREATE TABLE IF NOT EXISTS public.reviews (
   is_verified INTEGER DEFAULT 0 CHECK (is_verified IN (0, 1)),
   is_approved INTEGER DEFAULT 1 CHECK (is_approved IN (0, 1)),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(product_id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_product ON public.reviews(product_id);
@@ -157,7 +181,6 @@ CREATE TABLE IF NOT EXISTS public.cart_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cart_user ON public.cart_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_cart_product ON public.cart_items(product_id);
 
 -- ================================================
 -- WISHLIST ITEMS TABLE
@@ -171,7 +194,6 @@ CREATE TABLE IF NOT EXISTS public.wishlist_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wishlist_user ON public.wishlist_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_wishlist_product ON public.wishlist_items(product_id);
 
 -- ================================================
 -- ORDERS TABLE
@@ -181,26 +203,31 @@ CREATE TABLE IF NOT EXISTS public.orders (
   user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   order_number TEXT UNIQUE NOT NULL,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded')),
-  total_amount NUMERIC(10,2) NOT NULL,
+  subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
   shipping_amount NUMERIC(10,2) DEFAULT 0,
   tax_amount NUMERIC(10,2) DEFAULT 0,
   discount_amount NUMERIC(10,2) DEFAULT 0,
-  
-  -- Shipping address
-  shipping_full_name TEXT NOT NULL,
-  shipping_phone TEXT NOT NULL,
-  shipping_address_line1 TEXT NOT NULL,
+  total_amount NUMERIC(10,2) NOT NULL,
+
+  -- Shipping address (inline)
+  shipping_full_name TEXT,
+  shipping_phone TEXT,
+  shipping_address_line1 TEXT,
   shipping_address_line2 TEXT,
-  shipping_city TEXT NOT NULL,
-  shipping_state TEXT NOT NULL,
-  shipping_postal_code TEXT NOT NULL,
+  shipping_city TEXT,
+  shipping_state TEXT,
+  shipping_postal_code TEXT,
   shipping_country TEXT DEFAULT 'India',
-  
-  payment_method TEXT,
+
+  payment_method TEXT DEFAULT 'cod',
   payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
   payment_id TEXT,
-  
+
+  estimated_delivery DATE,
   notes TEXT,
+  cancelled_at TIMESTAMP WITH TIME ZONE,
+  cancel_reason TEXT,
+  delivered_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -218,10 +245,11 @@ CREATE TABLE IF NOT EXISTS public.order_items (
   product_id UUID NOT NULL REFERENCES public.products(id),
   product_name TEXT NOT NULL,
   product_sku TEXT,
+  thumbnail_url TEXT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
-  price NUMERIC(10,2) NOT NULL,
+  unit_price NUMERIC(10,2) NOT NULL,
   mrp NUMERIC(10,2),
-  discount NUMERIC(10,2) DEFAULT 0,
+  subtotal NUMERIC(10,2) NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -229,106 +257,27 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order ON public.order_items(order_id)
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON public.order_items(product_id);
 
 -- ================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
+-- ROW LEVEL SECURITY (RLS) — DISABLED FOR CUSTOM JWT
+-- We use service role key on the backend, so RLS is bypassed.
+-- Enable and configure only if using Supabase client-side directly.
 -- ================================================
 
--- Enable RLS on all tables
-ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.addresses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.brands ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cart_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.wishlist_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
-
--- User profiles: Users can read their own profile, admins can read all
-CREATE POLICY "Users can view own profile" ON public.user_profiles
-  FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile" ON public.user_profiles
-  FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "Users can insert own profile" ON public.user_profiles
-  FOR INSERT WITH CHECK (auth.uid() = id);
-
--- Addresses: Users can CRUD their own addresses
-CREATE POLICY "Users can view own addresses" ON public.addresses
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can create own addresses" ON public.addresses
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own addresses" ON public.addresses
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own addresses" ON public.addresses
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Categories: Public read, admin write
-CREATE POLICY "Public can view categories" ON public.categories
-  FOR SELECT USING (true);
-
--- Brands: Public read, admin write
-CREATE POLICY "Public can view brands" ON public.brands
-  FOR SELECT USING (true);
-
--- Products: Public read, admin write
-CREATE POLICY "Public can view products" ON public.products
-  FOR SELECT USING (is_active = 1);
-
-CREATE POLICY "Public can view product images" ON public.product_images
-  FOR SELECT USING (true);
-
--- Reviews: Public read, users can create own
-CREATE POLICY "Public can view approved reviews" ON public.reviews
-  FOR SELECT USING (is_approved = 1);
-
-CREATE POLICY "Users can create own reviews" ON public.reviews
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own reviews" ON public.reviews
-  FOR UPDATE USING (auth.uid() = user_id);
-
--- Cart: Users can CRUD own cart
-CREATE POLICY "Users can view own cart" ON public.cart_items
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can add to own cart" ON public.cart_items
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own cart" ON public.cart_items
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete from own cart" ON public.cart_items
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Wishlist: Users can CRUD own wishlist
-CREATE POLICY "Users can view own wishlist" ON public.wishlist_items
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can add to own wishlist" ON public.wishlist_items
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete from own wishlist" ON public.wishlist_items
-  FOR DELETE USING (auth.uid() = user_id);
-
--- Orders: Users can view own orders
-CREATE POLICY "Users can view own orders" ON public.orders
-  FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view own order items" ON public.order_items
-  FOR SELECT USING (
-    order_id IN (
-      SELECT id FROM public.orders WHERE user_id = auth.uid()
-    )
-  );
+-- Disable RLS (service role bypasses it anyway, but keeping it off for simplicity)
+ALTER TABLE public.user_profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.otp_codes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.addresses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.brands DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_images DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cart_items DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wishlist_items DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items DISABLE ROW LEVEL SECURITY;
 
 -- ================================================
--- TRIGGERS FOR UPDATED_AT
+-- TRIGGERS FOR updated_at
 -- ================================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -338,59 +287,50 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON public.user_profiles
+CREATE OR REPLACE TRIGGER update_user_profiles_updated_at
+  BEFORE UPDATE ON public.user_profiles
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_addresses_updated_at BEFORE UPDATE ON public.addresses
+CREATE OR REPLACE TRIGGER update_addresses_updated_at
+  BEFORE UPDATE ON public.addresses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON public.products
+CREATE OR REPLACE TRIGGER update_products_updated_at
+  BEFORE UPDATE ON public.products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON public.reviews
+CREATE OR REPLACE TRIGGER update_reviews_updated_at
+  BEFORE UPDATE ON public.reviews
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_cart_items_updated_at BEFORE UPDATE ON public.cart_items
+CREATE OR REPLACE TRIGGER update_cart_items_updated_at
+  BEFORE UPDATE ON public.cart_items
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON public.orders
+CREATE OR REPLACE TRIGGER update_orders_updated_at
+  BEFORE UPDATE ON public.orders
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ================================================
--- TRIGGER TO CREATE USER PROFILE ON SIGNUP
--- ================================================
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.user_profiles (id, email, name)
-  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)));
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- ================================================
--- TRIGGER TO UPDATE PRODUCT RATINGS
+-- TRIGGER: Auto-update product ratings after review
 -- ================================================
 CREATE OR REPLACE FUNCTION update_product_rating()
 RETURNS TRIGGER AS $$
 BEGIN
   UPDATE public.products
-  SET avg_rating = COALESCE(
-    (SELECT AVG(rating) FROM public.reviews WHERE product_id = NEW.product_id AND is_approved = 1),
-    0
-  ),
-  review_count = (
-    SELECT COUNT(*) FROM public.reviews WHERE product_id = NEW.product_id AND is_approved = 1
-  )
+  SET
+    avg_rating = COALESCE(
+      (SELECT ROUND(AVG(rating)::NUMERIC, 2) FROM public.reviews WHERE product_id = NEW.product_id AND is_approved = 1),
+      0
+    ),
+    review_count = (
+      SELECT COUNT(*) FROM public.reviews WHERE product_id = NEW.product_id AND is_approved = 1
+    )
   WHERE id = NEW.product_id;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_update_product_rating
+CREATE OR REPLACE TRIGGER trigger_update_product_rating
   AFTER INSERT OR UPDATE ON public.reviews
   FOR EACH ROW EXECUTE FUNCTION update_product_rating();

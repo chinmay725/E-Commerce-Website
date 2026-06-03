@@ -11,8 +11,8 @@
 |-------------|--------------------------------------|
 | Frontend    | React 18, Framer Motion, CSS3        |
 | Backend     | Node.js 18, Express.js 4             |
-| Database    | MySQL 8.0 (relational schema)        |
-| Auth        | JWT + Phone OTP (Twilio)             |
+| Database    | Supabase (Postgres schema)           |
+| Auth        | JWT + Email OTP (Nodemailer SMTP)    |
 | Images      | Cloudinary (or local storage)        |
 | Container   | Docker + Docker Compose              |
 | Web Server  | Nginx (production frontend)          |
@@ -209,13 +209,14 @@ node -e "const b=require('bcryptjs'); console.log(b.hashSync('Admin@123', 10))"
 ## ✨ Features
 
 ### Customer Features
-- 📱 Phone OTP Login (no password needed)
+- ✉️ Email OTP Verification (prioritizes local SMTP config to send 6-digit codes; falls back to Supabase/Console)
 - 🛒 Persistent cart with quantity management
 - ❤️ Wishlist
 - 📦 Order placement & tracking
 - 🔍 Real-time search with suggestions
 - 🌙 Dark / Light mode toggle
 - 📲 Fully responsive (mobile-first)
+- 📄 Dedicated static pages: About Us, Careers (with application triggers), Press & News, Blog, interactive FAQs, Contact Us (with form handling), Returns Policy, Privacy Policy, Terms of Use, Sitemap
 
 ### Admin Features
 - ➕ Add products dynamically (no code required)
@@ -227,9 +228,8 @@ node -e "const b=require('bcryptjs'); console.log(b.hashSync('Admin@123', 10))"
 
 ### Technical Features
 - JWT stateless authentication
-- MySQL transactions for orders
-- DB triggers for rating updates
-- FULLTEXT search on products
+- Supabase (Postgres) database integration
+- SMTP / Nodemailer transactional emails (with custom templates)
 - Rate limiting on API
 - Helmet security headers
 - Compression middleware
